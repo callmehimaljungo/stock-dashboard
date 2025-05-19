@@ -2,150 +2,72 @@ import streamlit as st
 import pandas as pd
 import math
 from pathlib import Path
-
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
-
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+import boto3
+import io
+import pyarrow.parquet as pq
+import plotly.graph_objects as go
 
 @st.cache_data
 def get_gdp_data():
-    """Grab GDP data from a CSV file.
-
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
-
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+    aws = st.secrets["aws"]
+    sess = boto3.session.Session(
+        aws_access_key_id=aws["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=aws["AWS_SECRET_ACCESS_KEY"],
+        region_name="auto",
     )
+    s3 = sess.client("s3", endpoint_url=aws["ENDPOINT_URL"])
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+    # 1) List các file trong thư mục fx_daily.parquet/
+    resp = s3.list_objects_v2(Bucket=aws["BUCKET"], Prefix="fx_daily.parquet/")
+    parts = [obj["Key"] for obj in resp.get("Contents", []) if obj["Key"].endswith(".parquet")]
+    if not parts:
+        raise FileNotFoundError("Không tìm thấy file .parquet trong fx_daily.parquet/")
+    key = parts[0]  # thường chỉ có 1 part
 
-    return gdp_df
+    # 2) Lấy nội dung file
+    obj = s3.get_object(Bucket=aws["BUCKET"], Key=key)
+    buf = io.BytesIO(obj["Body"].read())
 
-gdp_df = get_gdp_data()
+    # 3) Đọc Parquet về pandas
+    df = pq.read_table(buf).to_pandas()
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+# 1. Load data
+df = get_gdp_data()
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+# 2. Tiêu đề
+st.title("📈 FX Daily Dashboard")
 
-# Add some spacing
-''
-''
+# 3. Hiển thị bảng
+st.subheader("Bảng dữ liệu FX")
+st.dataframe(df, use_container_width=True)
 
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
+# 4. Vẽ biểu đồ line chart cột close
+# Chuẩn bị figure candlestick
+fig = go.Figure(
+    data=[
+        go.Candlestick(
+            x=df["date"],
+            open=df["open"],
+            high=df["high"],
+            low=df["low"],
+            close=df["close"],
+            name="OHLC",
+        )
+    ]
 )
 
-''
-''
+# Tùy chỉnh layout
+fig.update_layout(
+    title="📊 Biểu đồ nến EUR/USD",
+    xaxis_title="Ngày",
+    yaxis_title="Giá",
+    xaxis_rangeslider_visible=False,      # ẩn thanh range-slider (tuỳ chọn)
+    template="plotly_dark",               # có thể chọn "plotly", "ggplot2", ...
+)
 
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+# Hiển thị trong Streamlit
+st.subheader("Biểu đồ nến (Candlestick)")
+st.plotly_chart(fig, use_container_width=True)
