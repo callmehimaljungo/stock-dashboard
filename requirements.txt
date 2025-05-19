@@ -1,3 +1,5 @@
 streamlit
 pandas
+boto3
+pyarrow
 plotly
