@@ -85,6 +85,7 @@ selected_version = version_map[label]
 
 df = read_parquet_from_r2(selected_version)
 df.columns = [c.lower() for c in df.columns]
+df["close"] = df["close"] * 2
 
 
 st.subheader(f"📄 Xem trước dữ liệu: {label}")
@@ -104,7 +105,7 @@ df["sma10"] = df["close"].rolling(10).mean()
 df["daily_return"] = df["close"].pct_change()
 
 # Xác định màu nến: xanh nếu tăng, đỏ nếu giảm
-df["color"] = np.where(df["close"] > df["open"], "green", "red")
+df["color"] = np.where(df["close"] > df["open"], "lime", "red")
 
 # Tạo biểu đồ Figure
 fig = go.Figure()
@@ -115,7 +116,7 @@ for i in range(len(df)):
         x=[df["date"].iloc[i], df["date"].iloc[i]],
         y=[df["open"].iloc[i], df["close"].iloc[i]],
         mode="lines",
-        line=dict(color=df["color"].iloc[i], width=3),
+        line=dict(color=df["color"].iloc[i], width=4),
         showlegend=False
     ))
 
@@ -137,7 +138,7 @@ fig.add_trace(go.Scatter(
 
 # Cập nhật layout
 fig.update_layout(
-    title=f"📈 Nến tăng/giảm theo open-close – {label}",
+    title=f"📈 Biến đồ biến động giá trong khoảng thời gian – {label}",
     xaxis_title="Ngày",
     yaxis_title="Giá",
     template="plotly_dark"
@@ -145,3 +146,4 @@ fig.update_layout(
 
 # Hiển thị
 st.plotly_chart(fig, use_container_width=True)
+
