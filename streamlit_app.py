@@ -105,7 +105,7 @@ df["sma10"] = df["close"].rolling(10).mean()
 df["daily_return"] = df["close"].pct_change()
 
 # Xác định màu nến: xanh nếu tăng, đỏ nếu giảm
-df["color"] = np.where(df["close"] > df["open"], "lime", "red")
+df["color"] = np.where(df["close"] > df["open"], "green", "red")
 
 # Tạo biểu đồ Figure
 fig = go.Figure()
@@ -120,21 +120,6 @@ for i in range(len(df)):
         showlegend=False
     ))
 
-# Vẽ SMA5 và SMA10
-fig.add_trace(go.Scatter(
-    x=df["date"],
-    y=df["sma5"],
-    mode="lines",
-    line=dict(color="orange", width=1),
-    name="SMA 5"
-))
-fig.add_trace(go.Scatter(
-    x=df["date"],
-    y=df["sma10"],
-    mode="lines",
-    line=dict(color="blue", width=1),
-    name="SMA 10"
-))
 
 # Cập nhật layout
 fig.update_layout(
