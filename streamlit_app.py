@@ -132,3 +132,68 @@ fig.update_layout(
 # Hiển thị
 st.plotly_chart(fig, use_container_width=True)
 
+
+
+# -------------------------------
+# 5. Chuỗi thời gian
+# -------------------------------
+
+strategies = st.multiselect(
+    "📊 Chọn chiến lược đầu tư (có thể chọn nhiều)",
+    ["Buy & Hold", "SMA Crossover", "Momentum"],
+    default=[]
+)
+
+# Khởi tạo vị trí mặc định: 1 nếu Buy & Hold
+df["position"] = 1
+
+df["daily_return"] = df["close"].pct_change()
+results = {}
+
+if "Buy & Hold" in strategies:
+    results["Buy & Hold"] = (1 + df["daily_return"]).cumprod()
+
+if "SMA Crossover" in strategies:
+    df["sma5"] = df["close"].rolling(5).mean()
+    df["sma20"] = df["close"].rolling(20).mean()
+    signal = np.where(df["sma5"] > df["sma20"], 1, 0)
+    position = pd.Series(signal).shift(1).fillna(0)
+    strategy_return = df["daily_return"] * position
+    results["SMA Crossover"] = (1 + strategy_return).cumprod()
+
+if "Momentum" in strategies:
+    df["momentum"] = df["close"].pct_change(periods=5)
+    position = pd.Series(np.where(df["momentum"] > 0, 1, 0)).shift(1).fillna(0)
+    strategy_return = df["daily_return"] * position
+    results["Momentum"] = (1 + strategy_return).cumprod()
+
+# Return từng ngày
+df["daily_return"] = df["close"].pct_change()
+
+# Return của chiến lược (vị thế × return)
+df["strategy_return"] = df["daily_return"] * df["position"]
+
+# Tích lũy PnL
+df["buyhold_pnl"] = (1 + df["daily_return"]).cumprod()
+df["strategy_pnl"] = (1 + df["strategy_return"]).cumprod()
+if strategies:
+    st.subheader("📈 Hiệu suất các chiến lược được chọn:")
+else:
+    st.subheader("📈 Chưa chọn chiến lược nào.")
+
+if results:
+    fig = go.Figure()
+    for name, pnl in results.items():
+        fig.add_trace(go.Scatter(x=df["date"], y=pnl, name=name))
+
+    fig.update_layout(
+        template="plotly_dark",
+        yaxis_title="PnL tích luỹ",
+        xaxis_title="Ngày",
+        legend=dict(orientation="h", y=1.1)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("⛔ Vui lòng chọn ít nhất một chiến lược để hiển thị PnL.")
+
+
